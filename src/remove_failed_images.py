@@ -21,13 +21,13 @@ def remove_failed_images(data_dir, cache_path='bbox_cache.pkl', dry_run=False, a
     
     # Load cache
     if not Path(cache_path).exists():
-        print(f"❌ Cache file not found: {cache_path}")
+        print(f" Cache file not found: {cache_path}")
         return
     
     with open(cache_path, 'rb') as f:
         cache = pickle.load(f)
     
-    print(f"\n📊 Cache info:")
+    print(f"\n Cache info:")
     print(f"   Total cached images: {len(cache)}")
     
     # Collect tất cả ảnh trong data
@@ -44,17 +44,17 @@ def remove_failed_images(data_dir, cache_path='bbox_cache.pkl', dry_run=False, a
     # Tìm ảnh không có trong cache
     failed_images = [img for img in all_images if str(img) not in cache]
     
-    print(f"\n📈 Analysis:")
+    print(f"\n Analysis:")
     print(f"   Total images in data: {len(all_images)}")
     print(f"   Cached images: {len(cache)}")
     print(f"   Failed images (not in cache): {len(failed_images)}")
     
     if len(failed_images) == 0:
-        print("\n✅ No failed images to remove!")
+        print("\n No failed images to remove!")
         return
     
     # Hiển thị danh sách
-    print(f"\n🗑️  Failed images to remove ({len(failed_images)}):")
+    print(f"\n  Failed images to remove ({len(failed_images)}):")
     for img in failed_images[:20]:
         print(f"   {img}")
     if len(failed_images) > 20:
@@ -62,7 +62,7 @@ def remove_failed_images(data_dir, cache_path='bbox_cache.pkl', dry_run=False, a
     
     # Xác nhận
     if not dry_run:
-        print(f"\n⚠️  This will DELETE {len(failed_images)} images!")
+        print(f"\n  This will DELETE {len(failed_images)} images!")
         if not auto_confirm:
             response = input("  Continue? (y/n): ")
             if response.lower() != 'y':
@@ -72,7 +72,7 @@ def remove_failed_images(data_dir, cache_path='bbox_cache.pkl', dry_run=False, a
             print("  Auto-confirmed (--yes flag)")
         
         # Xóa ảnh
-        print(f"\n🗑️  Removing {len(failed_images)} images...")
+        print(f"\n  Removing {len(failed_images)} images...")
         removed_count = 0
         for img_path in failed_images:
             try:
@@ -81,12 +81,12 @@ def remove_failed_images(data_dir, cache_path='bbox_cache.pkl', dry_run=False, a
             except Exception as e:
                 print(f"  Error removing {img_path}: {e}")
         
-        print(f"\n✅ Removed {removed_count} images")
-        print(f"\n📊 Remaining images:")
+        print(f"\n Removed {removed_count} images")
+        print(f"\n Remaining images:")
         remaining = len(all_images) - removed_count
         print(f"   {remaining} images remaining")
     else:
-        print(f"\n🔍 DRY RUN: Would remove {len(failed_images)} images")
+        print(f"\n DRY RUN: Would remove {len(failed_images)} images")
         print("   Run without --dry-run to actually remove")
 
 

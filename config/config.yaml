@@ -25,12 +25,6 @@ pipeline:
       model_path: "models/local_branch.onnx"  # Updated: Model mới đã train (Dec 31)
       threshold: 0.5  # Giảm từ 0.8 xuống 0.5 để phù hợp với model đã train
       weight: 0.6  # Tăng weight vì Local tốt hơn (Acc: 0.84 vs 0.80)
-    temporal_branch:
-      enabled: false  # Tắt temporal branch vì chỉ làm việc với ảnh tĩnh
-      blink_frames: 5
-      min_blinks: 1
-      ear_threshold: 0.25  # Eye Aspect Ratio
-      weight: 0.0  # Không dùng nữa
     fusion_method: "weighted_sum"  # "weighted_sum", "soft_voting", hoặc "voting"
     final_threshold: 0.410  # Threshold tối ưu (updated)
     

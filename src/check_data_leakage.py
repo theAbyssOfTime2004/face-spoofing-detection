@@ -46,7 +46,7 @@ def check_data_leakage(data_dir):
         for label_type in ['normal', 'spoof']:
             split_dir = data_dir / split / label_type
             if not split_dir.exists():
-                print(f"  ⚠️  {split}/{label_type} không tồn tại, bỏ qua")
+                print(f"   {split}/{label_type} không tồn tại, bỏ qua")
                 continue
             
             for img_path in split_dir.glob('*.jpg'):
@@ -70,7 +70,7 @@ def check_data_leakage(data_dir):
     train_test_overlap = train_ids & test_ids
     dev_test_overlap = dev_ids & test_ids
     
-    print(f"\n📊 Statistics:")
+    print(f"\n Statistics:")
     print(f"  Train identities: {len(train_ids)}")
     print(f"  Dev identities: {len(dev_ids)}")
     print(f"  Test identities: {len(test_ids)}")
@@ -83,32 +83,32 @@ def check_data_leakage(data_dir):
     print(f"  Dev images: {dev_images}")
     print(f"  Test images: {test_images}")
     
-    print(f"\n🔍 Overlap Analysis:")
+    print(f"\n Overlap Analysis:")
     has_leakage = False
     
     if train_dev_overlap:
-        print(f"  ❌ Train-Dev overlap: {len(train_dev_overlap)} identities")
+        print(f"  Train-Dev overlap: {len(train_dev_overlap)} identities")
         print(f"     Examples: {list(train_dev_overlap)[:5]}")
         has_leakage = True
     else:
-        print(f"  ✅ Train-Dev: No overlap")
+        print(f"  Train-Dev: No overlap")
     
     if train_test_overlap:
-        print(f"  ❌ Train-Test overlap: {len(train_test_overlap)} identities")
+        print(f"  Train-Test overlap: {len(train_test_overlap)} identities")
         print(f"     Examples: {list(train_test_overlap)[:5]}")
         has_leakage = True
     else:
-        print(f"  ✅ Train-Test: No overlap")
+        print(f"  Train-Test: No overlap")
     
     if dev_test_overlap:
-        print(f"  ❌ Dev-Test overlap: {len(dev_test_overlap)} identities")
+        print(f"  Dev-Test overlap: {len(dev_test_overlap)} identities")
         print(f"     Examples: {list(dev_test_overlap)[:5]}")
         has_leakage = True
     else:
-        print(f"  ✅ Dev-Test: No overlap")
+        print(f"  Dev-Test: No overlap")
     
     # Thống kê số ảnh per identity
-    print(f"\n📈 Images per identity (sample - first 10):")
+    print(f"\n Images per identity (sample - first 10):")
     all_ids = train_ids | dev_ids | test_ids
     sample_ids = sorted(list(all_ids))[:10]
     for identity in sample_ids:
@@ -120,11 +120,11 @@ def check_data_leakage(data_dir):
     
     # Warning nếu có leakage
     if has_leakage:
-        print(f"\n⚠️  WARNING: Data Leakage detected!")
+        print(f"\nData Leakage detected!")
         print(f"   Model có thể học nhận diện identity thay vì liveness.")
         print(f"   Khuyến nghị: Chia lại data theo identity (không random).")
     else:
-        print(f"\n✅ No data leakage detected. Data split looks good!")
+        print(f"\n No data leakage detected. Data split looks good!")
     
     return {
         'train_dev_overlap': train_dev_overlap,
@@ -140,4 +140,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     check_data_leakage(args.data_dir)
+
 

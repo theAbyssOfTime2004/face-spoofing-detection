@@ -1,23 +1,22 @@
 """
 Evaluation script cho Ensemble (Fusion) Liveness Detection
-Đánh giá performance của cả Global + Local branches kết hợp
+Sử dụng dataset.py để đảm bảo preprocessing giống hệt training pipeline
+Tối ưu: Output 224x224 để tránh resize 2 lần (Local Branch cần 224x224, Global sẽ resize về 80x80)
 """
 import os
 import yaml
 import numpy as np
 import cv2
 from pathlib import Path
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 import argparse
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix, roc_curve, auc, precision_recall_curve
-)
+import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from pipeline.quality_gate import QualityGate
-from pipeline.detection import SCRFDDetector
+from dataset import create_dataloader
 from pipeline.liveness_ensemble import LivenessEnsemble
+from pipeline.detection import SCRFDDetector
 
 
 def load_config(config_path):
@@ -27,103 +26,171 @@ def load_config(config_path):
     return config['pipeline']
 
 
-def load_test_images(data_dir):
-    """Load tất cả ảnh từ test set"""
-    test_dir = Path(data_dir) / 'test'
-    real_images = list((test_dir / 'normal').glob('*.jpg'))
-    spoof_images = list((test_dir / 'spoof').glob('*.jpg'))
+def evaluate_ensemble_with_dataloader(config, data_dir, skip_quality=True):
+    """
+    Evaluate ensemble sử dụng cùng preprocessing như training
+    Tối ưu: Lấy raw crop 224x224 trực tiếp từ bbox_cache để tránh resize 2 lần
+    """
+    # Load ensemble và detector
+    ensemble = LivenessEnsemble(config['liveness'])
+    detector = SCRFDDetector(config['detection'])
     
-    images = []
-    labels = []  # 1 = real, 0 = spoof
+    # Load bbox cache
+    bbox_cache_path = Path(data_dir).parent / 'bbox_cache.pkl'
+    bbox_cache = {}
+    if bbox_cache_path.exists():
+        import pickle
+        with open(bbox_cache_path, 'rb') as f:
+            bbox_cache = pickle.load(f)
+        print(f"  ✓ Loaded bbox cache: {len(bbox_cache)} images")
+    else:
+        print("  ⚠ No bbox cache found, will detect on-the-fly (slower)")
     
-    for img_path in real_images:
-        images.append(str(img_path))
-        labels.append(1)
+    # Tạo dataloader để lấy image paths và labels
+    test_loader = create_dataloader(
+        data_dir, 'test',
+        batch_size=32,
+        image_size=(112, 112),  # Không dùng cho ensemble, chỉ để lấy paths
+        augment=False,
+        shuffle=False,
+        context_expansion_scale=2.7,  # Match training config
+        use_raw_crop=True,  # Match training config
+        use_full_image_detection=True  # Match training config
+    )
     
-    for img_path in spoof_images:
-        images.append(str(img_path))
-        labels.append(0)
+    print(f"\nEvaluating ensemble on {len(test_loader.dataset)} images...")
+    print("  Using raw crop 224x224 from bbox_cache (tránh resize 2 lần)")
     
-    return images, np.array(labels)
-
-
-def evaluate_ensemble(images, labels, quality_gate, detector, ensemble, skip_quality=True):
-    """Chạy inference ensemble trên tất cả ảnh và thu thập scores"""
-    all_scores = []
+    all_predictions = []
     all_labels = []
     all_global_scores = []
     all_local_scores = []
     all_final_scores = []
-    all_predictions = []
-    
-    print(f"\nProcessing {len(images)} images...")
     processed = 0
     failed = 0
     
-    for i, img_path in enumerate(images):
-        if (i + 1) % 50 == 0:
-            print(f"  Processed {i+1}/{len(images)} images... (failed: {failed})")
+    # Process từng batch
+    for batch_idx, batch in enumerate(test_loader):
+        if (batch_idx + 1) % 10 == 0:
+            print(f"  Processing batch {batch_idx + 1}/{len(test_loader)}... (failed: {failed})")
         
-        try:
-            # Load image
-            image = cv2.imread(img_path)
-            if image is None:
-                failed += 1
-                continue
+        labels = batch['label']   # Shape: [B]
+        paths = batch['path']
+        
+        # Process từng image trong batch
+        for i in range(len(paths)):
+            image_path = paths[i]
+            label = int(labels[i].item())
             
-            # Quality gate (skip nếu cần)
-            if not skip_quality:
-                quality_result = quality_gate.validate(image)
-                if not quality_result['passed']:
+            try:
+                # Load image
+                image = cv2.imread(image_path)
+                if image is None:
                     failed += 1
-                    continue  # Skip ảnh không đạt quality
-            
-            # Detect face
-            faces = detector.detect(image)
-            if len(faces) == 0:
-                failed += 1
-                continue  # Skip nếu không detect được face
-            
-            # Extract raw face crop (không alignment)
-            # QUAN TRỌNG: Dùng 224x224 để match với Local Branch input size
-            # Không dùng 112x112 rồi resize lại (làm mất thông tin)
-            face_data = faces[0]
-            raw_face = detector.extract_raw_face(
-                image,
-                face_data['bbox'],
-                output_size=(224, 224)  # Match với Local Branch input size
-            )
-            
-            if raw_face is None:
+                    continue
+                
+                # Lấy raw crop 224x224 từ bbox_cache (tối ưu nhất)
+                raw_face = None
+                if image_path in bbox_cache:
+                    cached_data = bbox_cache[image_path]
+                    bbox = cached_data['bbox']
+                    is_rotated = cached_data.get('rotated', False)
+                    
+                    # Rotate nếu cần
+                    if is_rotated:
+                        image = cv2.rotate(image, cv2.ROTATE_180)
+                    
+                    # Extract raw face crop 224x224 (match Local Branch input)
+                    raw_face = detector.extract_raw_face(
+                        image,  # BGR format
+                        bbox,
+                        output_size=(224, 224)  # Match Local Branch, Global sẽ resize về 80x80
+                    )
+                else:
+                    # Fallback: Detect on-the-fly
+                    faces = detector.detect(image)
+                    if len(faces) == 0:
+                        failed += 1
+                        continue
+                    
+                    raw_face = detector.extract_raw_face(
+                        image,
+                        faces[0]['bbox'],
+                        output_size=(224, 224)
+                    )
+                
+                if raw_face is None:
+                    failed += 1
+                    continue
+                
+                # Ensemble prediction với 224x224 (tránh resize 2 lần)
+                results = ensemble.predict(raw_face, frame_count=0)
+                
+                global_score = results.get('global_score', 0.0)
+                local_score = results.get('local_score', 0.0)
+                final_score = results.get('final_score', 0.0)
+                is_real = results.get('is_real', False)
+                
+                all_global_scores.append(global_score)
+                all_local_scores.append(local_score)
+                all_final_scores.append(final_score)
+                all_predictions.append(1 if is_real else 0)
+                all_labels.append(label)
+                processed += 1
+                
+            except Exception as e:
+                print(f"Error processing {image_path}: {e}")
                 failed += 1
                 continue
-            
-            # Ensemble prediction
-            results = ensemble.predict(raw_face, frame_count=0)
-            
-            # Collect scores
-            global_score = results.get('global_score', 0.0)
-            local_score = results.get('local_score', 0.0)
-            final_score = results.get('final_score', 0.0)
-            is_real = results.get('is_real', False)
-            
-            all_global_scores.append(global_score)
-            all_local_scores.append(local_score)
-            all_final_scores.append(final_score)
-            all_predictions.append(1 if is_real else 0)
-            all_labels.append(labels[i])
-            processed += 1
-            
-        except Exception as e:
-            print(f"Error processing {img_path}: {e}")
-            failed += 1
-            continue
     
-    print(f"\nSuccessfully processed {processed} images (failed: {failed})")
+    # Calculate metrics
+    all_labels = np.array(all_labels)
+    all_predictions = np.array(all_predictions)
+    
+    acc = accuracy_score(all_labels, all_predictions)
+    precision = precision_score(all_labels, all_predictions)
+    recall = recall_score(all_labels, all_predictions)
+    f1 = f1_score(all_labels, all_predictions)
+    cm = confusion_matrix(all_labels, all_predictions)
+    
+    print("\n" + "="*60)
+    print("ENSEMBLE EVALUATION RESULTS (with dataset preprocessing)")
+    print("="*60)
+    print(f"Total processed: {len(all_labels)}")
+    print(f"\nMetrics:")
+    print(f"  Accuracy:  {acc:.4f} ({acc*100:.2f}%)")
+    print(f"  Precision: {precision:.4f}")
+    print(f"  Recall:    {recall:.4f}")
+    print(f"  F1-Score:  {f1:.4f}")
+    print(f"\nConfusion Matrix:")
+    print(f"                Predicted")
+    print(f"              Fake  Real")
+    print(f"Actual Fake    {cm[0][0]:4d}  {cm[0][1]:4d}")
+    print(f"       Real    {cm[1][0]:4d}  {cm[1][1]:4d}")
+    
+    # Score distributions
+    real_mask = all_labels == 1
+    spoof_mask = all_labels == 0
+    
+    print(f"\nScore Distributions:")
+    print(f"  Global Branch:")
+    print(f"    Real:  Mean={np.array(all_global_scores)[real_mask].mean():.4f}, Std={np.array(all_global_scores)[real_mask].std():.4f}")
+    print(f"    Spoof: Mean={np.array(all_global_scores)[spoof_mask].mean():.4f}, Std={np.array(all_global_scores)[spoof_mask].std():.4f}")
+    print(f"  Local Branch:")
+    print(f"    Real:  Mean={np.array(all_local_scores)[real_mask].mean():.4f}, Std={np.array(all_local_scores)[real_mask].std():.4f}")
+    print(f"    Spoof: Mean={np.array(all_local_scores)[spoof_mask].mean():.4f}, Std={np.array(all_local_scores)[spoof_mask].std():.4f}")
+    print(f"  Final Score (Ensemble):")
+    print(f"    Real:  Mean={np.array(all_final_scores)[real_mask].mean():.4f}, Std={np.array(all_final_scores)[real_mask].std():.4f}")
+    print(f"    Spoof: Mean={np.array(all_final_scores)[spoof_mask].mean():.4f}, Std={np.array(all_final_scores)[spoof_mask].std():.4f}")
     
     return {
-        'labels': np.array(all_labels),
-        'predictions': np.array(all_predictions),
+        'accuracy': acc,
+        'precision': precision,
+        'recall': recall,
+        'f1': f1,
+        'confusion_matrix': cm,
+        'labels': all_labels,
+        'predictions': all_predictions,
         'global_scores': np.array(all_global_scores),
         'local_scores': np.array(all_local_scores),
         'final_scores': np.array(all_final_scores),
@@ -132,66 +199,31 @@ def evaluate_ensemble(images, labels, quality_gate, detector, ensemble, skip_qua
     }
 
 
-def print_metrics(results):
-    """Print evaluation metrics"""
-    labels = results['labels']
-    predictions = results['predictions']
-    global_scores = results['global_scores']
-    local_scores = results['local_scores']
-    final_scores = results['final_scores']
+def save_results(results, output_dir='results', config_path='config/config.yaml', data_dir='data'):
+    """Save evaluation results to file"""
+    os.makedirs(output_dir, exist_ok=True)
+    results_path = os.path.join(output_dir, 'evaluation_ensemble.txt')
     
-    # Calculate metrics
-    acc = accuracy_score(labels, predictions)
-    precision = precision_score(labels, predictions, average='binary', zero_division=0)
-    recall = recall_score(labels, predictions, average='binary', zero_division=0)
-    f1 = f1_score(labels, predictions, average='binary', zero_division=0)
+    with open(results_path, 'w') as f:
+        f.write("Ensemble Evaluation Results\n")
+        f.write("="*70 + "\n\n")
+        f.write(f"Config: {config_path}\n")
+        f.write(f"Data directory: {data_dir}\n")
+        f.write(f"Total processed: {results['processed']}\n")
+        f.write(f"Failed: {results['failed']}\n\n")
+        f.write("Metrics:\n")
+        f.write(f"  Accuracy:  {results['accuracy']:.4f}\n")
+        f.write(f"  Precision: {results['precision']:.4f}\n")
+        f.write(f"  Recall:    {results['recall']:.4f}\n")
+        f.write(f"  F1-Score:  {results['f1']:.4f}\n\n")
+        f.write("Confusion Matrix:\n")
+        f.write(f"                Predicted\n")
+        f.write(f"              Fake  Real\n")
+        cm = results['confusion_matrix']
+        f.write(f"Actual Fake    {cm[0][0]:4d}  {cm[0][1]:4d}\n")
+        f.write(f"       Real    {cm[1][0]:4d}  {cm[1][1]:4d}\n")
     
-    # Confusion matrix
-    cm = confusion_matrix(labels, predictions)
-    
-    print("\n" + "="*70)
-    print("ENSEMBLE EVALUATION RESULTS")
-    print("="*70)
-    print(f"Total images processed: {results['processed']}")
-    print(f"Failed: {results['failed']}")
-    print(f"\nOverall Metrics:")
-    print(f"  Accuracy:  {acc:.4f} ({acc*100:.2f}%)")
-    print(f"  Precision: {precision:.4f}")
-    print(f"  Recall:    {recall:.4f}")
-    print(f"  F1-Score:  {f1:.4f}")
-    
-    print(f"\nConfusion Matrix:")
-    print(f"                Predicted")
-    print(f"              Fake  Real")
-    print(f"Actual Fake    {cm[0][0]:4d}  {cm[0][1]:4d}")
-    print(f"       Real    {cm[1][0]:4d}  {cm[1][1]:4d}")
-    
-    # Score distributions
-    real_mask = labels == 1
-    spoof_mask = labels == 0
-    
-    print(f"\nScore Distributions:")
-    print(f"  Global Branch:")
-    print(f"    Real:  Mean={global_scores[real_mask].mean():.4f}, Std={global_scores[real_mask].std():.4f}")
-    print(f"    Spoof: Mean={global_scores[spoof_mask].mean():.4f}, Std={global_scores[spoof_mask].std():.4f}")
-    
-    print(f"  Local Branch:")
-    print(f"    Real:  Mean={local_scores[real_mask].mean():.4f}, Std={local_scores[real_mask].std():.4f}")
-    print(f"    Spoof: Mean={local_scores[spoof_mask].mean():.4f}, Std={local_scores[spoof_mask].std():.4f}")
-    
-    print(f"  Final Score (Ensemble):")
-    print(f"    Real:  Mean={final_scores[real_mask].mean():.4f}, Std={final_scores[real_mask].std():.4f}")
-    print(f"    Spoof: Mean={final_scores[spoof_mask].mean():.4f}, Std={final_scores[spoof_mask].std():.4f}")
-    print(f"    Range: Min={final_scores.min():.4f}, Max={final_scores.max():.4f}")
-    
-    return {
-        'accuracy': acc,
-        'precision': precision,
-        'recall': recall,
-        'f1': f1,
-        'confusion_matrix': cm,
-        'results': results
-    }
+    print(f"\nResults saved to {results_path}")
 
 
 def plot_confusion_matrix(cm, save_path=None):
@@ -253,7 +285,7 @@ def plot_score_distributions(results, save_path=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Evaluate Ensemble Liveness Detection')
+    parser = argparse.ArgumentParser(description='Evaluate Ensemble with dataset preprocessing')
     parser.add_argument('--config', type=str, default='config/config.yaml',
                        help='Path to config file')
     parser.add_argument('--data-dir', type=str, default='data',
@@ -271,32 +303,19 @@ def main():
     config = load_config(args.config)
     
     print("="*70)
-    print("Ensemble Liveness Detection - Evaluation")
+    print("Ensemble Evaluation với Dataset Preprocessing")
     print("="*70)
     print(f"Config: {args.config}")
     print(f"Data directory: {args.data_dir}")
     print(f"Skip quality gate: {args.skip_quality}")
+    print(f"Output directory: {args.output_dir}")
+    print(f"Plotting: {'Enabled' if args.plot else 'Disabled'}")
     
-    # Initialize components
-    print("\nInitializing components...")
-    quality_gate = QualityGate(config['quality_gate']) if not args.skip_quality else None
-    detector = SCRFDDetector(config['detection'])
-    ensemble = LivenessEnsemble(config['liveness'])
-    print("  ✓ All components initialized")
+    # Evaluate
+    results = evaluate_ensemble_with_dataloader(config, args.data_dir, args.skip_quality)
     
-    # Load test images
-    print(f"\nLoading test images from {args.data_dir}...")
-    images, labels = load_test_images(args.data_dir)
-    print(f"  Found {len(images)} images ({np.sum(labels)} real, {np.sum(1-labels)} spoof)")
-    
-    # Evaluate ensemble
-    results = evaluate_ensemble(
-        images, labels, quality_gate, detector, ensemble,
-        skip_quality=args.skip_quality
-    )
-    
-    # Print metrics
-    metrics = print_metrics(results)
+    # Save results
+    save_results(results, args.output_dir, args.config, args.data_dir)
     
     # Plot
     if args.plot:
@@ -304,35 +323,12 @@ def main():
         
         # Confusion matrix
         cm_path = os.path.join(args.output_dir, 'ensemble_confusion_matrix.png')
-        plot_confusion_matrix(metrics['confusion_matrix'], cm_path)
+        plot_confusion_matrix(results['confusion_matrix'], cm_path)
         
         # Score distributions
         dist_path = os.path.join(args.output_dir, 'ensemble_score_distributions.png')
         plot_score_distributions(results, dist_path)
-    
-    # Save results
-    os.makedirs(args.output_dir, exist_ok=True)
-    results_path = os.path.join(args.output_dir, 'evaluation_ensemble.txt')
-    with open(results_path, 'w') as f:
-        f.write("Ensemble Evaluation Results\n")
-        f.write("="*70 + "\n\n")
-        f.write(f"Config: {args.config}\n")
-        f.write(f"Data directory: {args.data_dir}\n")
-        f.write(f"Total processed: {results['processed']}\n")
-        f.write(f"Failed: {results['failed']}\n\n")
-        f.write("Metrics:\n")
-        f.write(f"  Accuracy:  {metrics['accuracy']:.4f}\n")
-        f.write(f"  Precision: {metrics['precision']:.4f}\n")
-        f.write(f"  Recall:    {metrics['recall']:.4f}\n")
-        f.write(f"  F1-Score:  {metrics['f1']:.4f}\n\n")
-        f.write("Confusion Matrix:\n")
-        f.write(f"                Predicted\n")
-        f.write(f"              Fake  Real\n")
-        f.write(f"Actual Fake    {metrics['confusion_matrix'][0][0]:4d}  {metrics['confusion_matrix'][0][1]:4d}\n")
-        f.write(f"       Real    {metrics['confusion_matrix'][1][0]:4d}  {metrics['confusion_matrix'][1][1]:4d}\n")
-    
-    print(f"\nResults saved to {results_path}")
-    if args.plot:
+        
         print(f"Plots saved to {args.output_dir}/")
 
 
