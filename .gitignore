@@ -24,7 +24,11 @@ data/
 results/
 *.log
 
-# Note: models/*.onnx and checkpoints/*.pth are included for submission
+# Checkpoints (large files, can be regenerated)
+checkpoints/
+*.pth
+
+# Note: models/*.onnx are included for submission
 
 # OS
 .DS_Store
