@@ -1,295 +1,259 @@
-# Face Liveness Detection Pipeline - SOTA 2025 Architecture
+# Face Liveness Detection Pipeline
 
-Pipeline phát hiện giả mạo khuôn mặt (Face Liveness Detection) sử dụng kiến trúc State-of-the-Art năm 2025 với chiến lược **Multi-stage Ensemble** và **Quality Aware**.
+A state-of-the-art face liveness detection system using multi-stage ensemble architecture with quality-aware processing. The pipeline combines Global (MiniFASNetV2) and Local (DeepPixBiS) branches to detect spoof attacks in biometric authentication systems.
 
-## 🎯 Tính năng chính
+## Features
 
-- ✅ **Quality Gate**: Lọc ảnh mờ, góc quay không hợp lệ
-- ✅ **SCRFD Detection**: Phát hiện và căn chỉnh khuôn mặt chính xác
-- ✅ **Multi-stage Liveness Ensemble**: 3 nhánh kết hợp
-  - **Global Branch**: MiniFASNetV2 - Phân tích toàn cục
-  - **Local Branch**: DeepPixBiS - Phân tích pixel-wise
-  - **Temporal Branch**: Blink detection - Phát hiện chớp mắt
-- ✅ **Face Recognition** (Optional): ArcFace cho 1-1 matching
+- **Quality Gate**: Filters blurry images and invalid head poses
+- **SCRFD Detection**: Accurate face detection and alignment with 5 keypoints
+- **Multi-stage Liveness Ensemble**: Combines complementary detection strategies
+  - **Global Branch**: MiniFASNetV2 for global facial feature analysis
+  - **Local Branch**: DeepPixBiS for pixel-wise texture analysis
+  - **Temporal Branch**: Blink detection for video streams (optional)
+- **Face Recognition**: ArcFace-based 1-to-1 matching (optional)
 
-## 📋 Yêu cầu
+## Requirements
 
 - Python >= 3.8
-- CUDA (optional, cho GPU acceleration)
+- CUDA (optional, for GPU acceleration)
 
-## 🚀 Cài đặt
+## Installation
 
-### 1. Clone repository
+### 1. Clone Repository
 
 ```bash
-cd /home/maidang/projects/fld-cake-assignment
+git clone https://github.com/theAbyssOfTime2004/face-spoofing-detection.git
+cd face-spoofing-detection
 ```
 
-### 2. Cài đặt dependencies
+### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Tải models hoặc Train từ dataset của bạn
+### 3. Download Models
 
-#### Option A: Train từ dataset của bạn (Khuyến nghị)
+The pipeline requires ONNX models in the `models/` directory:
 
-Bạn có dataset trong `data/` với cấu trúc:
-```
-data/
-├── train/normal/  (Real faces)
-├── train/spoof/   (Fake faces)
-├── test/normal/
-├── test/spoof/
-└── dev/normal/
-    └── dev/spoof/
-```
+- `models/global_branch.onnx` - Global Branch (MiniFASNetV2)
+- `models/local_branch.onnx` - Local Branch (DeepPixBiS)
 
-**Quick Start Training:**
-```bash
-# Chạy toàn bộ pipeline training
-./quick_start_training.sh
+**Note**: SCRFD and ArcFace models are automatically downloaded from InsightFace model zoo on first run.
 
-# Hoặc train từng model
-python src/train_global.py --data-dir data --epochs 50
-python src/train_local.py --data-dir data --epochs 50
-```
-
-Xem chi tiết trong [TRAINING.md](TRAINING.md)
-
-#### Option B: Sử dụng pre-trained models
-
-Pipeline cần các model sau (sẽ tự động tải khi chạy lần đầu với InsightFace):
-
-- **SCRFD**: Tự động tải từ InsightFace model zoo
-- **MiniFASNetV2**: Cần tải và convert sang ONNX
-- **DeepPixBiS**: Cần tải và convert sang ONNX
-- **ArcFace** (optional): Tự động tải từ InsightFace model zoo
-
-**Lưu ý**: Các model ONNX cần được đặt trong thư mục `models/`:
-- `models/minifasnet_v2.onnx`
-- `models/deeppixbis.onnx`
-
-Nếu không có model files, pipeline sẽ sử dụng dummy predictions để test.
-
-## 📁 Cấu trúc dự án
+## Project Structure
 
 ```
 fld-cake-assignment/
 ├── config/
-│   └── config.yaml          # Cấu hình pipeline
+│   └── config.yaml          # Pipeline configuration
 ├── src/
 │   ├── pipeline/
-│   │   ├── quality_gate.py      # Quality Gate module
-│   │   ├── detection.py         # SCRFD Detection & Alignment
-│   │   ├── liveness_ensemble.py # Multi-stage Ensemble
-│   │   ├── recognition.py       # ArcFace Recognition (optional)
-│   │   └── pipeline.py          # Pipeline chính
-│   └── main.py                  # Entry point
-├── models/                      # Thư mục chứa model weights
-├── requirements.txt
-└── README.md
+│   │   ├── quality_gate.py      # Quality validation
+│   │   ├── detection.py         # SCRFD face detection
+│   │   ├── liveness_ensemble.py # Ensemble liveness detection
+│   │   ├── recognition.py       # ArcFace recognition (optional)
+│   │   └── pipeline.py          # Main pipeline
+│   ├── train_global.py          # Global branch training
+│   ├── train_local.py           # Local branch training
+│   ├── evaluate_ensemble.py     # Model evaluation
+│   └── convert_to_onnx.py       # ONNX conversion
+├── models/                      # Model weights (ONNX)
+├── checkpoints/                 # Training checkpoints
+├── data/                        # Dataset directory
+├── results/                     # Evaluation results
+└── requirements.txt
 ```
 
-## ⚙️ Cấu hình
+## Configuration
 
-Chỉnh sửa `config/config.yaml` để tùy chỉnh:
+Edit `config/config.yaml` to customize pipeline behavior:
 
 ```yaml
 pipeline:
   quality_gate:
-    max_yaw: 20.0        # Góc quay tối đa (degrees)
-    blur_threshold: 100.0 # Ngưỡng blur detection
+    max_yaw: 20.0
+    max_pitch: 20.0
+    max_roll: 20.0
+    blur_threshold: 100.0
+    
+  detection:
+    model_name: "buffalo_l"
+    context_expansion_scale: 2.7
     
   liveness:
     global_branch:
-      threshold: 0.9      # Ngưỡng cho Global branch
+      model_path: "models/global_branch.onnx"
+      threshold: 0.5
       weight: 0.4
     local_branch:
-      threshold: 0.8      # Ngưỡng cho Local branch
-      weight: 0.4
-    temporal_branch:
-      enabled: true       # Bật/tắt temporal analysis
-      min_blinks: 1      # Số lần chớp mắt tối thiểu
+      model_path: "models/local_branch.onnx"
+      threshold: 0.5
+      weight: 0.6
+    fusion_method: "weighted_sum"
+    final_threshold: 0.410
 ```
 
-## 🎮 Sử dụng
+## Usage
 
-### Xử lý từ camera
-
-```bash
-python src/main.py --camera
-```
-
-### Xử lý từ video file
+### Process Video File
 
 ```bash
 python src/main.py --input video.mp4
 ```
 
-### Xử lý với options
+### Process Camera Stream
 
 ```bash
-# Hiển thị chi tiết scores
-python src/main.py --input video.mp4 --show-details
-
-# Giới hạn số frames
-python src/main.py --input video.mp4 --max-frames 100
-
-# Lưu output video
-python src/main.py --input video.mp4 --output output.mp4
-
-# Không hiển thị window (headless mode)
-python src/main.py --input video.mp4 --no-display
+python src/main.py --camera
 ```
 
-### Sử dụng config tùy chỉnh
+### Command Line Options
 
 ```bash
+# Show detailed scores
+python src/main.py --input video.mp4 --show-details
+
+# Limit number of frames
+python src/main.py --input video.mp4 --max-frames 100
+
+# Save output video
+python src/main.py --input video.mp4 --output output.mp4
+
+# Use custom config
 python src/main.py --input video.mp4 --config config/custom_config.yaml
 ```
 
-## 📊 Kết quả
-
-Pipeline trả về:
-
-- **Status**: `accepted` (real) hoặc `rejected` (fake)
-- **Confidence score**: Điểm tin cậy (0-1)
-- **Detailed scores**: Global, Local, Temporal scores
-- **Statistics**: Thống kê xử lý
-
-### Ví dụ output:
-
-```
-=== KẾT QUẢ CUỐI CÙNG ===
-Status: accepted
-Message: Face is REAL
-Confidence: 0.892
-Pass Rate: 85.00%
-
-=== THỐNG KÊ ===
-Total frames: 100
-Quality passed: 95 (95.00%)
-Detection passed: 90 (90.00%)
-Liveness passed: 85 (85.00%)
-Final accepted: 85 (85.00%)
-```
-
-## 🔧 Kiến trúc Pipeline
-
-```
-Input Video Stream
-    ↓
-Quality Gate (Blur/Pose Check)
-    ↓
-SCRFD Detection & Alignment
-    ↓
-Liveness Ensemble
-    ├── Global Branch (MiniFASNetV2)
-    ├── Local Branch (DeepPixBiS)
-    └── Temporal Branch (Blink Detection)
-    ↓
-Fusion & Decision
-    ↓
-Real/Fake Result
-```
-
-## 🛡️ Chống tấn công
-
-Pipeline có khả năng chống:
-
-- ✅ **Print Attack**: Nhờ Local Branch (DeepPixBiS) phân tích pixel
-- ✅ **Replay Attack**: Nhờ Global Branch (MiniFASNet) phát hiện Moiré pattern
-- ✅ **3D Mask Attack**: Nhờ Quality Gate và độ sâu ảnh
-- ✅ **Static Image**: Nhờ Temporal Branch yêu cầu chớp mắt
-
-## 📝 Lưu ý
-
-1. **Models**: Cần tải và convert các model ONNX (MiniFASNetV2, DeepPixBiS) vào thư mục `models/`
-2. **GPU**: Để tăng tốc, cài `onnxruntime-gpu` và có CUDA
-3. **Temporal Branch**: Cần xử lý nhiều frames liên tiếp để phát hiện chớp mắt
-4. **InsightFace**: SCRFD và ArcFace sẽ tự động tải model khi chạy lần đầu
-
-## 🐛 Troubleshooting
-
-### Lỗi: "InsightFace not available"
-```bash
-pip install insightface
-```
-
-### Lỗi: "ONNX Runtime not available"
-```bash
-pip install onnxruntime
-# Hoặc với GPU:
-pip install onnxruntime-gpu
-```
-
-### Lỗi: "Model not found"
-- Đảm bảo model files được đặt đúng trong `models/`
-- Hoặc pipeline sẽ dùng dummy predictions để test
-
-### Lỗi: "Cannot open camera"
-- Kiểm tra camera index: `--camera-id 1` (thử các index khác)
-- Kiểm tra quyền truy cập camera
-
-## 🎓 Training với Dataset của bạn
-
-Bạn có thể train models từ dataset của riêng bạn! Xem hướng dẫn chi tiết:
-
-- **[TRAINING.md](TRAINING.md)**: Hướng dẫn training đầy đủ
-- **Quick Start**: `./quick_start_training.sh`
+## Training
 
 ### Dataset Format
 
-Dataset cần có cấu trúc:
+Organize your dataset as follows:
+
 ```
 data/
 ├── train/
-│   ├── normal/  (Real faces - .jpg hoặc .png)
-│   └── spoof/   (Fake faces - .jpg hoặc .png)
-├── test/
+│   ├── normal/  # Real faces
+│   └── spoof/   # Fake faces
+├── dev/
 │   ├── normal/
 │   └── spoof/
-└── dev/
+└── test/
     ├── normal/
     └── spoof/
+```
+
+### Preprocessing
+
+```bash
+# Preprocess and cache bounding boxes
+python src/preprocess_bbox_cache.py --data-dir data
+
+# Check for data leakage (identity overlap)
+python src/check_data_leakage.py --data-dir data
+
+# Resplit data by identity (if leakage detected)
+python src/resplit_data_by_identity.py --data-dir data --yes
 ```
 
 ### Training Commands
 
 ```bash
-# Phân tích dataset
-python src/analyze_data.py --data-dir data --visualize
-
 # Train Global Branch
-python src/train_global.py --data-dir data --epochs 50
+python src/train_global.py --data-dir data --epochs 70 \
+    --weight-decay 1e-3 --label-smoothing 0.15 --early-stopping 10
 
 # Train Local Branch
-python src/train_local.py --data-dir data --epochs 50
-
-# Evaluate models
-python src/evaluate.py --model-type global --checkpoint checkpoints/best_global.pth
+python src/train_local.py --data-dir data --epochs 70 \
+    --weight-decay 1e-3 --label-smoothing 0.15 --early-stopping 10
 
 # Convert to ONNX
 python src/convert_to_onnx.py --model-type global \
     --checkpoint checkpoints/best_global.pth \
-    --output models/minifasnet_v2.onnx
+    --output models/global_branch.onnx
+
+python src/convert_to_onnx.py --model-type local \
+    --checkpoint checkpoints/best_local.pth \
+    --output models/local_branch.onnx
 ```
 
-## 📚 Tài liệu tham khảo
+### Evaluation
 
-- [InsightFace](https://github.com/deepinsight/insightface)
-- [SCRFD Paper](https://arxiv.org/abs/2105.04714)
-- [ArcFace Paper](https://arxiv.org/abs/1801.07698)
-- [MediaPipe Face Mesh](https://google.github.io/mediapipe/solutions/face_mesh.html)
+```bash
+# Evaluate ensemble model
+python src/evaluate_ensemble.py --data-dir data --split test \
+    --plot --output-dir results
+```
 
-## 📄 License
+## Architecture
+
+```
+Input Video Stream
+    ↓
+Quality Gate (Blur/Pose Validation)
+    ↓
+SCRFD Detection & Alignment
+    ↓
+Raw Crop (2.7x context expansion)
+    ↓
+Liveness Ensemble
+    ├── Global Branch (80×80, MiniFASNetV2)
+    ├── Local Branch (224×224, DeepPixBiS)
+    └── Temporal Branch (Blink Detection, optional)
+    ↓
+Weighted Fusion (0.4 × Global + 0.6 × Local)
+    ↓
+Final Decision (Threshold: 0.410)
+```
+
+## Model Performance
+
+- **Accuracy**: 89.28%
+- **Precision**: 87.28%
+- **Recall**: 93.11%
+- **F1-Score**: 90.10%
+
+Detailed evaluation results are available in `results/evaluation_ensemble.txt`.
+
+## Key Design Decisions
+
+1. **Raw Crop (No Alignment)**: Preserves high-frequency patterns essential for Moiré detection
+2. **Context Expansion (2.7x)**: Captures surrounding context (paper edges, device screens, fingers)
+3. **Identity-Based Splitting**: Ensures zero identity overlap between train/dev/test sets
+4. **Anti-Overfitting Measures**: Weight decay (1e-3), label smoothing (0.15), CoarseDropout augmentation
+5. **Ensemble Fusion**: Weighted sum combining complementary global and local features
+
+## Troubleshooting
+
+### Missing Models
+
+If models are not found, ensure ONNX files are in `models/` directory. The pipeline will use dummy predictions for testing if models are unavailable.
+
+### ONNX Runtime
+
+```bash
+# CPU version
+pip install onnxruntime
+
+# GPU version (requires CUDA)
+pip install onnxruntime-gpu
+```
+
+### InsightFace
+
+```bash
+pip install insightface
+```
+
+Models are automatically downloaded on first run.
+
+## Documentation
+
+- **Model Performance Report**: See `Model_Performance_Report.pdf` for detailed evaluation
+- **Submission Notebook**: See `Liveness_Detection_Submission.ipynb` for rationale and examples
+
+## License
 
 MIT License
 
-## 👥 Contributors
-
-Developed for eKYC applications with SOTA 2025 architecture.
-
-
+## References
