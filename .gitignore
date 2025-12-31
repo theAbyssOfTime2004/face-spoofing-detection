@@ -19,12 +19,12 @@ ENV/
 # Data (large files)
 data/
 *.pkl
-*.pth
-*.onnx
 
 # Results (can be regenerated)
 results/
 *.log
+
+# Note: models/*.onnx and checkpoints/*.pth are included for submission
 
 # OS
 .DS_Store
