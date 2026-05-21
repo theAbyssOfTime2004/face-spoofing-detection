@@ -1,0 +1,25 @@
+project_id                  = "your-gcp-project-id"
+region                      = "asia-southeast1"
+zone                        = "asia-southeast1-b"
+environment                 = "dev"
+
+cluster_name                = "liveness-gke"
+network_name                = "liveness-vpc"
+subnet_name                 = "liveness-subnet"
+subnet_cidr                 = "10.80.0.0/20"
+pods_secondary_range_name   = "pods-range"
+pods_secondary_cidr         = "10.84.0.0/14"
+services_secondary_range_name = "services-range"
+services_secondary_cidr       = "10.88.0.0/20"
+
+node_machine_type           = "e2-standard-2"
+node_disk_size_gb           = 100
+node_disk_type              = "pd-standard"
+node_count_min              = 1
+node_count_max              = 3
+
+artifact_registry_repo      = "liveness-repo"
+artifact_registry_format    = "DOCKER"
+mlflow_artifacts_bucket_name = "mlflow-artifacts-ztf-<random-suffix>"
+
+deletion_protection         = false
