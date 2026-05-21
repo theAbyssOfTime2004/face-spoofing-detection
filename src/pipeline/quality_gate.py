@@ -13,6 +13,24 @@ except ImportError:
     print("Warning: MediaPipe not available. Pose estimation will be limited.")
 
 
+def _get_mediapipe_face_mesh():
+    """
+    Resolve FaceMesh API across different MediaPipe package layouts.
+    Returns face_mesh module or None if unavailable.
+    """
+    if not MEDIAPIPE_AVAILABLE:
+        return None
+
+    if hasattr(mp, "solutions") and hasattr(mp.solutions, "face_mesh"):
+        return mp.solutions.face_mesh
+
+    try:
+        from mediapipe.python.solutions import face_mesh as mp_face_mesh
+        return mp_face_mesh
+    except Exception:
+        return None
+
+
 class QualityGate:
     """Bộ lọc chất lượng ảnh đầu vào"""
     
@@ -21,13 +39,18 @@ class QualityGate:
         self.max_pitch = config.get('max_pitch', 20.0)
         self.max_roll = config.get('max_roll', 20.0)
         self.blur_threshold = config.get('blur_threshold', 100.0)
+        self.enforce_blur_check = config.get('enforce_blur_check', True)
         self.min_face_quality = config.get('min_face_quality', 0.5)
         
         # MediaPipe Face Mesh cho pose estimation (optional)
         self.face_mesh = None
         if MEDIAPIPE_AVAILABLE:
             try:
-                self.mp_face_mesh = mp.solutions.face_mesh
+                self.mp_face_mesh = _get_mediapipe_face_mesh()
+                if self.mp_face_mesh is None:
+                    raise AttributeError(
+                        "FaceMesh API unavailable. Ensure official 'mediapipe' package is installed."
+                    )
                 self.face_mesh = self.mp_face_mesh.FaceMesh(
                     static_image_mode=True,
                     max_num_faces=1,
@@ -154,8 +177,9 @@ class QualityGate:
         is_sharp, blur_score = self.check_blur(image)
         quality_info['blur_score'] = float(blur_score)
         quality_info['is_sharp'] = is_sharp
+        quality_info['blur_check_enforced'] = bool(self.enforce_blur_check)
         
-        if not is_sharp:
+        if self.enforce_blur_check and not is_sharp:
             quality_info['failed_reason'] = 'blur'
             return False, quality_info
         

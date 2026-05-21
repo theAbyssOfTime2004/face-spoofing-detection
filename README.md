@@ -10,7 +10,6 @@ A state-of-the-art face liveness detection system using multi-stage ensemble arc
   - **Global Branch**: MiniFASNetV2 for global facial feature analysis
   - **Local Branch**: DeepPixBiS for pixel-wise texture analysis
   - **Temporal Branch**: Blink detection for video streams (optional)
-- **Face Recognition**: ArcFace-based 1-to-1 matching (optional)
 
 ## Requirements
 
@@ -39,7 +38,7 @@ The pipeline requires ONNX models in the `models/` directory:
 - `models/global_branch.onnx` - Global Branch (MiniFASNetV2)
 - `models/local_branch.onnx` - Local Branch (DeepPixBiS)
 
-**Note**: SCRFD and ArcFace models are automatically downloaded from InsightFace model zoo on first run.
+**Note**: SCRFD models are automatically downloaded from InsightFace model zoo on first run.
 
 ## Project Structure
 
@@ -52,7 +51,6 @@ fld-cake-assignment/
 │   │   ├── quality_gate.py      # Quality validation
 │   │   ├── detection.py         # SCRFD face detection
 │   │   ├── liveness_ensemble.py # Ensemble liveness detection
-│   │   ├── recognition.py       # ArcFace recognition (optional)
 │   │   └── pipeline.py          # Main pipeline
 │   ├── train_global.py          # Global branch training
 │   ├── train_local.py           # Local branch training

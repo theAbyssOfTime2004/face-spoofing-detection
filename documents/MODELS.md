@@ -56,16 +56,6 @@ python convert_to_onnx.py --model_path models/deeppixbis.pth --output models/dee
 
 Đặt file vào: `models/deeppixbis.onnx`
 
-## 4. ArcFace (Recognition - Optional)
-
-Model này sẽ **tự động tải** khi chạy lần đầu:
-
-```python
-import insightface
-model = insightface.app.FaceAnalysis(name='arcface_r100_v1')
-model.prepare(ctx_id=-1)
-```
-
 ## Lưu ý
 
 1. **Nếu không có model files**: Pipeline sẽ sử dụng dummy predictions để test. Kết quả sẽ không chính xác nhưng có thể test flow.
