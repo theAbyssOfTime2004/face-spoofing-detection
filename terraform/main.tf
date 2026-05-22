@@ -67,6 +67,7 @@ resource "google_project_iam_member" "gke_nodes_roles" {
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
     "roles/stackdriver.resourceMetadata.writer",
+    "roles/storage.objectAdmin",
   ])
 
   project = var.project_id
