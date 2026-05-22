@@ -1,4 +1,5 @@
 import io
+import re
 from unittest.mock import MagicMock
 
 import cv2
@@ -7,6 +8,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main as app_main
+
+
+def _get_metric_value(metrics_text: str, metric_name: str, labels: dict[str, str]) -> float:
+    label_part = ",".join([f'{key}="{value}"' for key, value in labels.items()])
+    pattern = rf"^{re.escape(metric_name)}\{{{re.escape(label_part)}\}} ([0-9.eE+-]+)$"
+    for line in metrics_text.splitlines():
+        match = re.match(pattern, line)
+        if match:
+            return float(match.group(1))
+    return 0.0
 
 
 @pytest.fixture
@@ -65,12 +76,21 @@ def test_predict_empty(client):
 def test_predict_invalid_image(client):
     app_main.pipeline = MagicMock()
     app_main.pipeline_ready = True
+    before_metrics = client.get("/metrics").text
+    before_decode_failed = _get_metric_value(
+        before_metrics, "liveness_errors_total", {"kind": "decode_failed"}
+    )
 
     response = client.post(
         "/predict",
         files={"file": ("bad.txt", io.BytesIO(b"not an image"), "text/plain")},
     )
     assert response.status_code == 400
+    after_metrics = client.get("/metrics").text
+    after_decode_failed = _get_metric_value(
+        after_metrics, "liveness_errors_total", {"kind": "decode_failed"}
+    )
+    assert after_decode_failed >= before_decode_failed + 1
 
 
 def test_predict_calls_pipeline(client, valid_image_bytes):
@@ -100,12 +120,21 @@ def test_predict_pipeline_exception(client, valid_image_bytes):
     mock_pipeline.process_frame.side_effect = RuntimeError("boom")
     app_main.pipeline = mock_pipeline
     app_main.pipeline_ready = True
+    before_metrics = client.get("/metrics").text
+    before_pipeline_exception = _get_metric_value(
+        before_metrics, "liveness_errors_total", {"kind": "pipeline_exception"}
+    )
 
     response = client.post(
         "/predict",
         files={"file": ("tiny.jpg", io.BytesIO(valid_image_bytes), "image/jpeg")},
     )
     assert response.status_code == 500
+    after_metrics = client.get("/metrics").text
+    after_pipeline_exception = _get_metric_value(
+        after_metrics, "liveness_errors_total", {"kind": "pipeline_exception"}
+    )
+    assert after_pipeline_exception >= before_pipeline_exception + 1
 
 
 def test_metrics_endpoint(client):
