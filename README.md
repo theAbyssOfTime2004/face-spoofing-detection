@@ -249,6 +249,7 @@ Models are automatically downloaded on first run.
 
 - **Model Performance Report**: See `Model_Performance_Report.pdf` for detailed evaluation
 - **Submission Notebook**: See `Liveness_Detection_Submission.ipynb` for rationale and examples
+- **N9 CI/CD Setup**: See `documents/N9_CICD.md` for GitHub Actions + GKE deployment configuration
 
 ## License
 
