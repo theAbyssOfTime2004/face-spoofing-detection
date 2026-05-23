@@ -22,6 +22,24 @@ except ImportError:
     print("Warning: MediaPipe not available. Temporal branch will be limited.")
 
 
+def _get_mediapipe_face_mesh():
+    """
+    Resolve FaceMesh API across different MediaPipe package layouts.
+    Returns face_mesh module or None if unavailable.
+    """
+    if not MEDIAPIPE_AVAILABLE:
+        return None
+
+    if hasattr(mp, "solutions") and hasattr(mp.solutions, "face_mesh"):
+        return mp.solutions.face_mesh
+
+    try:
+        from mediapipe.python.solutions import face_mesh as mp_face_mesh
+        return mp_face_mesh
+    except Exception:
+        return None
+
+
 class GlobalBranch:
     """MiniFASNetV2 - Global Analysis"""
     
@@ -212,7 +230,11 @@ class TemporalBranch:
         self.face_mesh = None
         if MEDIAPIPE_AVAILABLE:
             try:
-                self.mp_face_mesh = mp.solutions.face_mesh
+                self.mp_face_mesh = _get_mediapipe_face_mesh()
+                if self.mp_face_mesh is None:
+                    raise AttributeError(
+                        "FaceMesh API unavailable. Ensure official 'mediapipe' package is installed."
+                    )
                 self.face_mesh = self.mp_face_mesh.FaceMesh(
                     static_image_mode=False,
                     max_num_faces=1,

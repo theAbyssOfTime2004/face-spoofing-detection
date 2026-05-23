@@ -1,6 +1,6 @@
 """
 Main Face Liveness Detection Pipeline
-Kết hợp tất cả các module: Quality Gate -> Detection -> Liveness -> Recognition (optional)
+Kết hợp tất cả các module: Quality Gate -> Detection -> Liveness
 """
 import cv2
 import numpy as np
@@ -8,12 +8,9 @@ from typing import Dict, Optional, List
 from .quality_gate import QualityGate
 from .detection import SCRFDDetector
 from .liveness_ensemble import LivenessEnsemble
-from .recognition import FaceRecognizer
 
 
-class FaceLivenessPipeline:
-    """SOTA Face Liveness Detection Pipeline 2025 - Chỉ tập trung Liveness"""
-    
+class FaceLivenessPipeline:    
     def __init__(self, config: dict):
         self.config = config
         
@@ -21,11 +18,6 @@ class FaceLivenessPipeline:
         self.quality_gate = QualityGate(config['quality_gate'])
         self.detector = SCRFDDetector(config['detection'])
         self.liveness = LivenessEnsemble(config['liveness'])
-        
-        # Recognition chỉ dùng nếu enabled (cho 1-1 matching)
-        self.recognizer = None
-        if config.get('recognition', {}).get('enabled', False):
-            self.recognizer = FaceRecognizer(config['recognition'])
         
         # Frame buffer cho temporal analysis
         self.frame_buffer = []
@@ -51,7 +43,6 @@ class FaceLivenessPipeline:
                 'quality_info': dict,
                 'detection': dict,
                 'liveness': dict,
-                'recognition': dict (optional),
                 'message': str
             }
         """
@@ -73,7 +64,7 @@ class FaceLivenessPipeline:
         
         self.stats['quality_passed'] += 1
         
-        # 2. Detection & Alignment
+        # 2. Detection
         detections = self.detector.detect(frame)
         if len(detections) == 0:
             result['message'] = 'Không phát hiện khuôn mặt'
@@ -89,15 +80,16 @@ class FaceLivenessPipeline:
         
         self.stats['detection_passed'] += 1
         
-        # Extract và align face
-        x1, y1, x2, y2 = face_data['bbox']
-        face_roi = frame[y1:y2, x1:x2]
-        landmarks = np.array(face_data['landmarks']) if face_data['landmarks'] else None
-        aligned_face = self.detector.align_face(face_roi, landmarks) if landmarks is not None else cv2.resize(face_roi, (112, 112))
-        
-        # 3. Liveness Detection (PHẦN CHÍNH)
+        # Extract raw face crop cho liveness (không alignment để giữ texture/moire patterns)
+        raw_face = self.detector.extract_raw_face(
+            frame,
+            face_data['bbox'],
+            output_size=(224, 224)
+        )
+
+        # 3. Liveness Detection (PHẦN CHÍNH) - dùng raw face
         frame_count = len(self.frame_buffer)
-        liveness_result = self.liveness.predict(aligned_face, frame_count)
+        liveness_result = self.liveness.predict(raw_face, frame_count)
         result['liveness'] = liveness_result
         
         # 4. Final decision dựa trên Liveness
@@ -110,27 +102,9 @@ class FaceLivenessPipeline:
             result['status'] = 'rejected'
             result['message'] = f"Liveness check failed - Score: {liveness_result['final_score']:.3f}"
         
-        # 5. Optional: 1-1 Face Recognition (nếu cần so sánh với 1 face cụ thể)
-        if self.recognizer is not None:
-            embedding = self.recognizer.extract_embedding(aligned_face)
-            if embedding is not None:
-                result['recognition'] = {
-                    'embedding_extracted': True,
-                    'embedding_size': len(embedding)
-                }
-                # Có thể so sánh với 1 embedding cụ thể ở đây
-                # if reference_embedding is not None:
-                #     similarity = self.recognizer.compare_faces(embedding, reference_embedding)
-                #     result['recognition']['similarity'] = similarity
-                #     result['recognition']['is_match'] = similarity > self.config['recognition']['threshold']
-            else:
-                result['recognition'] = {
-                    'embedding_extracted': False
-                }
-        
-        # Add to buffer cho temporal analysis
+        # 5. Add to buffer cho temporal analysis
         self.frame_buffer.append({
-            'frame': aligned_face,
+            'frame': raw_face,
             'liveness': liveness_result,
             'frame_number': self.stats['total_frames']
         })

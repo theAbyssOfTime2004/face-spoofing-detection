@@ -38,3 +38,21 @@ Thumbs.db
 *.tmp
 *.bak
 *.backup
+
+# Terraform / IaC
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Keys / secrets
+sa-key.json
+*.pem
+*.key
+
+# MLflow local artifacts
+mlruns/
+
+# InsightFace local cache
+.insightface/

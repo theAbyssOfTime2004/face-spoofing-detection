@@ -1,0 +1,176 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: liveness-api-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  liveness-api-overview.json: |-
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "title": "Request Rate by Status",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum by (status) (rate(liveness_requests_total[5m]))",
+              "legendFormat": "{{status}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "id": 2,
+          "title": "Error Rate by Kind",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum by (kind) (rate(liveness_errors_total[5m]))",
+              "legendFormat": "{{kind}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "id": 3,
+          "title": "Latency p50/p95/p99",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(liveness_latency_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(liveness_latency_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(liveness_latency_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p99",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "id": 4,
+          "title": "Total Requests by Status",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum by (status) (liveness_requests_total)",
+              "legendFormat": "{{status}}",
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "liveness",
+        "mlops"
+      ],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "",
+      "title": "Liveness API Overview",
+      "uid": "liveness-api-overview",
+      "version": 1,
+      "weekStart": ""
+    }

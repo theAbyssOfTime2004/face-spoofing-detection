@@ -5,6 +5,7 @@ pipeline:
     max_pitch: 20.0
     max_roll: 20.0
     blur_threshold: 100.0  # Laplacian variance
+    enforce_blur_check: false  # Không reject vì blur, chỉ log blur_score
     min_face_quality: 0.5  # Nếu dùng FaceQnet/MagFace
     
   # Detection
@@ -27,12 +28,5 @@ pipeline:
       weight: 0.6  # Tăng weight vì Local tốt hơn (Acc: 0.84 vs 0.80)
     fusion_method: "weighted_sum"  # "weighted_sum", "soft_voting", hoặc "voting"
     final_threshold: 0.410  # Threshold tối ưu (updated)
-    
-  # Face Recognition (Optional - chỉ dùng nếu cần 1-1 matching)
-  recognition:
-    enabled: false  # Tắt nếu không cần
-    model_name: "arcface_r100_v1"
-    embedding_size: 512
-    threshold: 0.6  # Cosine similarity threshold
 
 

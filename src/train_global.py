@@ -11,8 +11,16 @@ from pathlib import Path
 import argparse
 from tqdm import tqdm
 import os
+import time
 
 from dataset import create_dataloader, analyze_dataset
+
+try:
+    import mlflow
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    print("Warning: mlflow not available. Training will run without experiment tracking.")
 
 
 class MiniFASNetV2(nn.Module):
@@ -156,6 +164,21 @@ def main():
                        help='Early stopping patience (stop if no improvement for N epochs, default: 10, 0 = disabled)')
     
     args = parser.parse_args()
+
+    mlflow_enabled = False
+    best_checkpoint_path = None
+    latest_checkpoint_path = None
+    if MLFLOW_AVAILABLE:
+        try:
+            tracking_uri = os.getenv('MLFLOW_TRACKING_URI')
+            if tracking_uri:
+                mlflow.set_tracking_uri(tracking_uri)
+            mlflow.set_experiment(os.getenv('MLFLOW_EXPERIMENT_NAME', 'face-spoofing-detection'))
+            mlflow.start_run(run_name=f"train-global-{int(time.time())}")
+            mlflow_enabled = True
+        except Exception as e:
+            print(f"Warning: Could not initialize MLflow tracking: {e}")
+            mlflow_enabled = False
     
     # Device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -225,6 +248,7 @@ def main():
     # Resume from checkpoint
     start_epoch = 0
     best_acc = 0
+    patience_counter = 0
     
     if args.resume and os.path.exists(args.resume):
         print(f"Resuming from {args.resume}")
@@ -236,32 +260,76 @@ def main():
     
     # Create save directory
     os.makedirs(args.save_dir, exist_ok=True)
+
+    if mlflow_enabled:
+        mlflow.log_params({
+            'branch': 'global',
+            'data_dir': args.data_dir,
+            'batch_size': args.batch_size,
+            'epochs': args.epochs,
+            'lr': args.lr,
+            'image_size': args.image_size,
+            'context_expansion_scale': args.context_expansion_scale,
+            'weight_decay': args.weight_decay,
+            'label_smoothing': args.label_smoothing,
+            'early_stopping': args.early_stopping,
+            'resume': bool(args.resume),
+            'device': str(device),
+        })
     
     # Training loop
     print(f"\nStarting training for {args.epochs} epochs...")
     print("="*50)
     
-    for epoch in range(start_epoch, args.epochs):
-        print(f"\nEpoch {epoch+1}/{args.epochs}")
-        print("-"*50)
-        
-        # Train
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
-        
-        # Validate
-        val_loss, val_acc = validate(model, val_loader, criterion, device)
-        
-        # Update learning rate (ReduceLROnPlateau cần val_acc để quyết định)
-        scheduler.step(val_acc)
-        
-        # Print results
-        print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
-        print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
-        
-        # Save checkpoint
-        if val_acc > best_acc:
-            best_acc = val_acc
-            patience_counter = 0  # Reset patience counter
+    try:
+        for epoch in range(start_epoch, args.epochs):
+            print(f"\nEpoch {epoch+1}/{args.epochs}")
+            print("-"*50)
+            
+            # Train
+            train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+            
+            # Validate
+            val_loss, val_acc = validate(model, val_loader, criterion, device)
+            
+            # Update learning rate (ReduceLROnPlateau cần val_acc để quyết định)
+            scheduler.step(val_acc)
+            current_lr = optimizer.param_groups[0]['lr']
+            
+            # Print results
+            print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
+            print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
+            print(f"LR: {current_lr:.6f}")
+
+            if mlflow_enabled:
+                mlflow.log_metrics({
+                    'train_loss': float(train_loss),
+                    'train_acc': float(train_acc),
+                    'val_loss': float(val_loss),
+                    'val_acc': float(val_acc),
+                    'lr': float(current_lr),
+                    'best_val_acc_so_far': float(max(best_acc, val_acc)),
+                }, step=epoch + 1)
+            
+            # Save checkpoint
+            if val_acc > best_acc:
+                best_acc = val_acc
+                patience_counter = 0  # Reset patience counter
+                checkpoint = {
+                    'epoch': epoch + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'best_acc': best_acc,
+                    'val_acc': val_acc,
+                    'train_acc': train_acc
+                }
+                best_checkpoint_path = os.path.join(args.save_dir, 'best_global.pth')
+                torch.save(checkpoint, best_checkpoint_path)
+                print(f"Saved best model with val_acc: {val_acc:.2f}%")
+            else:
+                patience_counter += 1
+            
+            # Save latest
             checkpoint = {
                 'epoch': epoch + 1,
                 'model_state_dict': model.state_dict(),
@@ -270,27 +338,22 @@ def main():
                 'val_acc': val_acc,
                 'train_acc': train_acc
             }
-            torch.save(checkpoint, os.path.join(args.save_dir, 'best_global.pth'))
-            print(f"Saved best model with val_acc: {val_acc:.2f}%")
-        else:
-            patience_counter += 1
-        
-        # Save latest
-        checkpoint = {
-            'epoch': epoch + 1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'best_acc': best_acc,
-            'val_acc': val_acc,
-            'train_acc': train_acc
-        }
-        torch.save(checkpoint, os.path.join(args.save_dir, 'latest_global.pth'))
-        
-        # Early stopping
-        if args.early_stopping > 0 and patience_counter >= args.early_stopping:
-            print(f"\nEarly stopping triggered! No improvement for {args.early_stopping} epochs.")
-            print(f"Best validation accuracy: {best_acc:.2f}%")
-            break
+            latest_checkpoint_path = os.path.join(args.save_dir, 'latest_global.pth')
+            torch.save(checkpoint, latest_checkpoint_path)
+            
+            # Early stopping
+            if args.early_stopping > 0 and patience_counter >= args.early_stopping:
+                print(f"\nEarly stopping triggered! No improvement for {args.early_stopping} epochs.")
+                print(f"Best validation accuracy: {best_acc:.2f}%")
+                break
+    finally:
+        if mlflow_enabled:
+            if best_checkpoint_path and os.path.exists(best_checkpoint_path):
+                mlflow.log_artifact(best_checkpoint_path, artifact_path='checkpoints')
+            if latest_checkpoint_path and os.path.exists(latest_checkpoint_path):
+                mlflow.log_artifact(latest_checkpoint_path, artifact_path='checkpoints')
+            mlflow.log_metric('best_val_acc', float(best_acc))
+            mlflow.end_run()
     
     print("\n" + "="*50)
     print("Training completed!")

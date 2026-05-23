@@ -1,0 +1,10 @@
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+
+grafana:
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
