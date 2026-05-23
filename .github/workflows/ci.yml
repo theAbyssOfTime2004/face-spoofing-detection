@@ -152,4 +152,4 @@ jobs:
             --set image.tag="${{ github.sha }}"
 
       - name: Verify rollout
-        run: kubectl rollout status deployment/liveness --timeout=300s
+        run: kubectl rollout status deployment -l app.kubernetes.io/instance=liveness --timeout=300s
