@@ -47,7 +47,5 @@ Go to `Settings -> Secrets and variables -> Actions -> Secrets` and add:
    - `build_push` succeeded and image tagged by commit SHA.
    - `deploy` succeeded.
 4. Verify cluster rollout:
-   - `kubectl rollout status deployment/liveness`
+   - `kubectl rollout status deployment -l app.kubernetes.io/instance=liveness --timeout=300s`
    - `curl http://<LB_IP>/health`
-
-- CI dry-run note: trigger PR checks.
